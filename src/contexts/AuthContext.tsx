@@ -1,8 +1,15 @@
 // src/contexts/AuthContext.tsx
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  ReactNode,
+} from "react";
 import { apiFetch } from "@/lib/api";
 
-/* ---------------- TYPES ---------------- */
+/* ===================== TYPES ===================== */
+
 interface Session {
   id: string | number;
   userId: string | number;
@@ -47,13 +54,19 @@ interface AuthContextType {
   signup: (email: string, password: string, name: string) => Promise<any>;
   logout: () => void;
 
-  addActivityLog: (action: string, details: string, severity?: string) => Promise<void>;
+  addActivityLog: (
+    action: string,
+    details: string,
+    severity?: string
+  ) => Promise<void>;
 
   enable2FA: () => Promise<string | null>;
   disable2FA: () => Promise<void>;
 
   getAllUsers: () => any[];
 }
+
+/* ===================== CONTEXT ===================== */
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -65,7 +78,8 @@ const safeParse = (val: string | null, fallback: any) => {
   }
 };
 
-/* ---------------- PROVIDER ---------------- */
+/* ===================== PROVIDER ===================== */
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<any | null>(
     safeParse(localStorage.getItem("securevault_user"), null)
@@ -81,8 +95,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     safeParse(localStorage.getItem("securevault_alerts"), [])
   );
 
-  /** ⭐ Needed by Teams module */
+  // Teams module placeholder (backend not implemented)
   const [allUsers, setAllUsers] = useState<any[]>([]);
+
+  /* ===================== INIT ===================== */
 
   useEffect(() => {
     if (!token) {
@@ -97,43 +113,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   }, [token]);
 
-  /* ---------------- USERS (Teams Module) ---------------- */
+  /* ===================== USERS (SAFE) ===================== */
+
   const loadUsers = async () => {
-    try {
-      // 🔥 FIX: Your backend has NO /api/users endpoint.
-      // So we avoid 404 errors and set empty list safely.
-      setAllUsers([]);
-      return [];
-    } catch {
-      setAllUsers([]);
-    }
+    // Backend has no /api/users → avoid errors
+    setAllUsers([]);
+    return [];
   };
 
-  /* ---------------- LOAD SESSIONS ---------------- */
+  /* ===================== SESSIONS ===================== */
+
   const reloadSessions = async () => {
     if (!token) return;
 
     try {
-      const data = await apiFetch("/sessions", { method: "GET" });
+      const data = await apiFetch("/sessions");
       setSessions(Array.isArray(data) ? data : []);
     } catch {
       setSessions([]);
     }
   };
 
-  /* ---------------- LOAD ACTIVITY ---------------- */
+  /* ===================== ACTIVITY ===================== */
+
   const reloadActivity = async () => {
     if (!token) return;
 
     try {
-      const data = await apiFetch("/activity", { method: "GET" });
+      const data = await apiFetch("/activity");
       setActivityLogs(Array.isArray(data) ? data : []);
     } catch {
       setActivityLogs([]);
     }
   };
 
-  /* ---------------- ALERT READ ---------------- */
+  /* ===================== ALERTS ===================== */
+
   const markAlertRead = (id: string) => {
     const updated = securityAlerts.map((a) =>
       a.id === id ? { ...a, isRead: true } : a
@@ -142,50 +157,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("securevault_alerts", JSON.stringify(updated));
   };
 
+  /* ===================== LOGIN ===================== */
+
   const login = async (email: string, password: string) => {
-  try {
-    const data = await apiFetch("/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    });
+    try {
+      const data = await apiFetch("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
 
-    // IF LOGIN FAILED (401 FROM BACKEND)
-    if (data.success === false) {
-      return { success: false, error: data.message };
+      if (data?.success === false) {
+        return { success: false, error: data.message };
+      }
+
+      const loggedUser = {
+        email: data.email,
+        name: data.name,
+        role: data.role,
+      };
+
+      setUser(loggedUser);
+      setToken(data.token);
+
+      localStorage.setItem("securevault_token", data.token);
+      localStorage.setItem(
+        "securevault_user",
+        JSON.stringify(loggedUser)
+      );
+
+      await reloadSessions();
+      await reloadActivity();
+
+      return { success: true };
+    } catch {
+      return { success: false, error: "Server error" };
     }
+  };
 
-    // SUCCESS CASE
-    const loggedUser = {
-      email: data.email,
-      name: data.name,
-      role: data.role
-    };
+  /* ===================== SIGNUP ===================== */
 
-    setToken(data.token);
-    setUser(loggedUser);
-
-    localStorage.setItem("securevault_token", data.token);
-    localStorage.setItem("securevault_user", JSON.stringify(loggedUser));
-
-    await reloadSessions();
-    await reloadActivity();
-
-    return { success: true };
-
-  } catch (e) {
-    return { success: false, error: "Server error" };
-  }
-};
-
-  /* ---------------- SIGNUP ---------------- */
-  const signup = async (email, password, name) => {
+  const signup = async (
+    email: string,
+    password: string,
+    name: string
+  ) => {
     try {
       const data = await apiFetch("/auth/register", {
         method: "POST",
         body: JSON.stringify({ email, password, name }),
       });
 
-      return data.success
+      return data?.success
         ? { success: true }
         : { success: false, error: data.message };
     } catch {
@@ -193,7 +215,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  /* ---------------- ADD ACTIVITY LOG ---------------- */
+  /* ===================== ACTIVITY LOG ===================== */
+
   const addActivityLog = async (
     action: string,
     details: string,
@@ -207,14 +230,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       const saved = res?.data || res;
-
       setActivityLogs((prev) => [saved, ...prev]);
-    } catch (err) {
-      console.warn("addActivityLog failed", err);
+    } catch {
+      // silent fail (non-critical)
     }
   };
 
-  /* ---------------- 2FA ENABLE ---------------- */
+  /* ===================== 2FA ===================== */
+
   const enable2FA = async (): Promise<string | null> => {
     try {
       const res = await apiFetch("/auth/2fa/enable", { method: "POST" });
@@ -222,33 +245,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const updated = { ...user, twoFactorEnabled: true };
       setUser(updated);
-      localStorage.setItem("securevault_user", JSON.stringify(updated));
+      localStorage.setItem(
+        "securevault_user",
+        JSON.stringify(updated)
+      );
 
-      addActivityLog("2fa_enable", "Enabled two-factor authentication");
+      addActivityLog("2fa_enable", "Enabled 2FA");
       return secret;
     } catch {
       return null;
     }
   };
 
-  /* ---------------- 2FA DISABLE ---------------- */
   const disable2FA = async () => {
     try {
       await apiFetch("/auth/2fa/disable", { method: "POST" });
 
       const updated = { ...user, twoFactorEnabled: false };
       setUser(updated);
-      localStorage.setItem("securevault_user", JSON.stringify(updated));
+      localStorage.setItem(
+        "securevault_user",
+        JSON.stringify(updated)
+      );
 
-      addActivityLog("2fa_disable", "Disabled two-factor authentication");
+      addActivityLog("2fa_disable", "Disabled 2FA");
     } catch {}
   };
 
-  /* ---------------- LOGOUT ---------------- */
-  const logout = () => {
-    localStorage.removeItem("securevault_token");
-    localStorage.removeItem("securevault_user");
+  /* ===================== LOGOUT ===================== */
 
+  const logout = () => {
+    localStorage.clear();
     setUser(null);
     setToken(null);
     setSessions([]);
@@ -256,6 +283,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSecurityAlerts([]);
     setAllUsers([]);
   };
+
+  /* ===================== PROVIDER ===================== */
 
   return (
     <AuthContext.Provider
@@ -276,12 +305,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signup,
         logout,
 
+        addActivityLog,
         enable2FA,
         disable2FA,
 
-        addActivityLog,
-
-        /** ⭐ Used by Teams Module */
         getAllUsers: () => allUsers,
       }}
     >
@@ -290,8 +317,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/* ===================== HOOK ===================== */
+
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
+  if (!ctx) {
+    throw new Error("useAuth must be used inside AuthProvider");
+  }
   return ctx;
 }
